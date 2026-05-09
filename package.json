@@ -1,0 +1,16 @@
+{
+  "name": "campus-issue-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Full-stack issue tracking platform for campus and company complaints.",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "test": "node --test tests/api.test.mjs",
+    "test:api": "node --test tests/api.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

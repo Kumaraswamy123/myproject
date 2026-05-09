@@ -1,0 +1,1293 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Campus Issue Tracker API",
+    "version": "1.0.0",
+    "description": "OpenAPI specification for the Campus Issue Tracker backend. The API supports simulated bearer-token authentication, reporter/admin roles, issue CRUD, comments, stats, and in-memory rate limiting."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:3000/api",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "System",
+      "description": "Health, metadata, and platform-level behavior"
+    },
+    {
+      "name": "Auth",
+      "description": "Signup, login, logout, and session identity"
+    },
+    {
+      "name": "Issues",
+      "description": "Complaint creation, queue filtering, assignment, updates, comments, and deletion"
+    },
+    {
+      "name": "Users",
+      "description": "Admin-only user lookup for assignment"
+    },
+    {
+      "name": "Stats",
+      "description": "Dashboard summary metrics"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Health check",
+        "description": "Returns API health information. This endpoint is exempt from rate limiting.",
+        "responses": {
+          "200": {
+            "description": "API is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/meta": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Get issue metadata enums",
+        "responses": {
+          "200": {
+            "description": "Available categories, priorities, and statuses",
+            "headers": {
+              "X-RateLimit-Limit": {
+                "$ref": "#/components/headers/XRateLimitLimit"
+              },
+              "X-RateLimit-Remaining": {
+                "$ref": "#/components/headers/XRateLimitRemaining"
+              },
+              "X-RateLimit-Reset": {
+                "$ref": "#/components/headers/XRateLimitReset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/signup": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Create a reporter account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignupRequest"
+              },
+              "examples": {
+                "reporter": {
+                  "value": {
+                    "name": "Student Name",
+                    "email": "student@example.com",
+                    "password": "password123",
+                    "department": "Computer Science"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reporter account created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "description": "Email already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "An account already exists for this email"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Login with email and password",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "examples": {
+                "admin": {
+                  "value": {
+                    "email": "admin@campus.local",
+                    "password": "admin123"
+                  }
+                },
+                "reporter": {
+                  "value": {
+                    "email": "asha@student.local",
+                    "password": "user123"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "Invalid email or password"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Logout current session",
+        "description": "Invalidates the bearer token if one is supplied.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logout completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Get the logged-in user",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "List users",
+        "description": "Admin-only endpoint used to populate assignment controls.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Users list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsersResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "tags": ["Stats"],
+        "summary": "Get dashboard statistics",
+        "description": "Admins see all issue statistics. Reporters see statistics for their own issues.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/issues": {
+      "get": {
+        "tags": ["Issues"],
+        "summary": "List visible issues",
+        "description": "Admins see all issues. Reporters see only issues they reported.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Text search across ID, title, category, location, description, and status."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IssueStatus"
+                },
+                {
+                  "type": "string",
+                  "const": "All"
+                }
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IssueCategory"
+                },
+                {
+                  "type": "string",
+                  "const": "All"
+                }
+              ]
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/IssuePriority"
+                },
+                {
+                  "type": "string",
+                  "const": "All"
+                }
+              ]
+            }
+          },
+          {
+            "name": "assigneeId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Admin user ID, `Unassigned`, or `All`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Visible issues",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
+      "post": {
+        "tags": ["Issues"],
+        "summary": "Create an issue",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Issue created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/issues/{issueId}": {
+      "parameters": [
+        {
+          "name": "issueId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": ["Issues"],
+        "summary": "Get issue by ID",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/IssueNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Issues"],
+        "summary": "Update issue",
+        "description": "Admins can update workflow, assignment, due date, priority, category, and resolution. Reporters can edit Open/Reopened issue details or reopen Resolved/Closed issues.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIssueRequest"
+              },
+              "examples": {
+                "adminUpdate": {
+                  "value": {
+                    "status": "In Progress",
+                    "priority": "High",
+                    "category": "Network",
+                    "assigneeId": "usr_network",
+                    "dueDate": "2026-05-08",
+                    "resolution": "Network team is replacing the access point."
+                  }
+                },
+                "reporterEdit": {
+                  "value": {
+                    "title": "Projector is flickering",
+                    "category": "Equipment",
+                    "priority": "Medium",
+                    "location": "Academic Block B, Room 203",
+                    "description": "The projector powers on but flickers every few minutes."
+                  }
+                },
+                "reporterReopen": {
+                  "value": {
+                    "status": "Reopened"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Issue updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/IssueNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Issues"],
+        "summary": "Delete issue",
+        "description": "Admin-only deletion.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Issue deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/IssueNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/issues/{issueId}/comments": {
+      "parameters": [
+        {
+          "name": "issueId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": ["Issues"],
+        "summary": "Add issue comment",
+        "description": "Adds a comment and records a timeline event.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Comment added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/IssueNotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "token"
+      }
+    },
+    "headers": {
+      "XRateLimitLimit": {
+        "description": "Maximum API requests allowed in the current window.",
+        "schema": {
+          "type": "integer",
+          "example": 120
+        }
+      },
+      "XRateLimitRemaining": {
+        "description": "Requests remaining in the current window.",
+        "schema": {
+          "type": "integer",
+          "example": 119
+        }
+      },
+      "XRateLimitReset": {
+        "description": "Unix timestamp, in seconds, when the current window resets.",
+        "schema": {
+          "type": "integer",
+          "example": 1778331318
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds to wait before retrying after a 429 response.",
+        "schema": {
+          "type": "integer",
+          "example": 42
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid JSON, missing fields, or validation error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": "Missing required fields",
+              "details": ["title", "category"]
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication required or invalid token",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": "Authentication required"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Authenticated user is not allowed to perform this action",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": "You do not have access to this issue"
+            }
+          }
+        }
+      },
+      "AdminForbidden": {
+        "description": "Admin access is required",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": "Admin access required"
+            }
+          }
+        }
+      },
+      "IssueNotFound": {
+        "description": "Issue not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": "Issue not found"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit exceeded",
+        "headers": {
+          "X-RateLimit-Limit": {
+            "$ref": "#/components/headers/XRateLimitLimit"
+          },
+          "X-RateLimit-Remaining": {
+            "$ref": "#/components/headers/XRateLimitRemaining"
+          },
+          "X-RateLimit-Reset": {
+            "$ref": "#/components/headers/XRateLimitReset"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": "Too many requests. Please wait before trying again.",
+              "details": {
+                "limit": 120,
+                "retryAfterSeconds": 42
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "IssueCategory": {
+        "type": "string",
+        "enum": ["Facilities", "Network", "Equipment", "Safety", "Cleanliness", "Other"]
+      },
+      "IssuePriority": {
+        "type": "string",
+        "enum": ["Low", "Medium", "High", "Critical"]
+      },
+      "IssueStatus": {
+        "type": "string",
+        "enum": ["Open", "Assigned", "In Progress", "Resolved", "Reopened", "Closed", "Rejected"]
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": ["user", "admin"]
+      },
+      "PublicUser": {
+        "type": "object",
+        "required": ["id", "name", "email", "role", "department"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "usr_admin"
+          },
+          "name": {
+            "type": "string",
+            "example": "Facilities Admin"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "admin@campus.local"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "department": {
+            "type": "string",
+            "example": "Operations"
+          }
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "required": ["id", "authorId", "authorName", "message", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "com_123"
+          },
+          "authorId": {
+            "type": "string",
+            "example": "usr_student"
+          },
+          "authorName": {
+            "type": "string",
+            "example": "Asha Rao"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 800,
+            "example": "Technician visited the room and confirmed the fault."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HistoryEvent": {
+        "type": "object",
+        "required": ["id", "actorId", "actorName", "action", "detail", "createdAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "hist_123"
+          },
+          "actorId": {
+            "type": "string",
+            "example": "usr_admin"
+          },
+          "actorName": {
+            "type": "string",
+            "example": "Facilities Admin"
+          },
+          "action": {
+            "type": "string",
+            "example": "Status changed"
+          },
+          "detail": {
+            "type": "string",
+            "example": "Status changed from Open to Assigned."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Issue": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "category",
+          "priority",
+          "status",
+          "location",
+          "description",
+          "reporterId",
+          "assigneeId",
+          "dueDate",
+          "resolution",
+          "createdAt",
+          "updatedAt",
+          "closedAt",
+          "comments",
+          "history",
+          "reporter",
+          "assignee"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "iss_projector_b203"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 140,
+            "example": "Projector not powering on"
+          },
+          "category": {
+            "$ref": "#/components/schemas/IssueCategory"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IssueStatus"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 120,
+            "example": "Academic Block B, Room 203"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1200,
+            "example": "The ceiling projector does not start even after using the wall switch and remote."
+          },
+          "reporterId": {
+            "type": "string",
+            "example": "usr_student"
+          },
+          "assigneeId": {
+            "type": ["string", "null"],
+            "example": "usr_admin"
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "Date string in YYYY-MM-DD format, or an empty string when unset.",
+            "example": "2026-05-15"
+          },
+          "resolution": {
+            "type": "string",
+            "maxLength": 1200,
+            "example": "Facilities team assigned for inspection."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Comment"
+            }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryEvent"
+            }
+          },
+          "reporter": {
+            "$ref": "#/components/schemas/PublicUser"
+          },
+          "assignee": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PublicUser"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "SignupRequest": {
+        "type": "object",
+        "required": ["name", "email", "password"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "department": {
+            "type": "string",
+            "maxLength": 80,
+            "default": "General"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          }
+        }
+      },
+      "CreateIssueRequest": {
+        "type": "object",
+        "required": ["title", "category", "priority", "location", "description"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 140
+          },
+          "category": {
+            "$ref": "#/components/schemas/IssueCategory"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1200
+          }
+        }
+      },
+      "UpdateIssueRequest": {
+        "type": "object",
+        "description": "The accepted fields depend on role and issue status. Admins can update workflow and assignment fields. Reporters can edit complaint details while Open/Reopened or send status `Reopened` for Resolved/Closed issues.",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 140
+          },
+          "category": {
+            "$ref": "#/components/schemas/IssueCategory"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1200
+          },
+          "status": {
+            "$ref": "#/components/schemas/IssueStatus"
+          },
+          "assigneeId": {
+            "type": "string",
+            "description": "Admin user ID, or empty string to unassign."
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "Date string in YYYY-MM-DD format, or empty string to clear."
+          },
+          "resolution": {
+            "type": "string",
+            "maxLength": 1200
+          }
+        }
+      },
+      "CommentRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 800
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "required": ["token", "user"],
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "9a9b6cf8d0f74c0b..."
+          },
+          "user": {
+            "$ref": "#/components/schemas/PublicUser"
+          }
+        }
+      },
+      "MeResponse": {
+        "type": "object",
+        "required": ["user"],
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/PublicUser"
+          }
+        }
+      },
+      "UsersResponse": {
+        "type": "object",
+        "required": ["users"],
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PublicUser"
+            }
+          }
+        }
+      },
+      "IssuesResponse": {
+        "type": "object",
+        "required": ["issues"],
+        "properties": {
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          }
+        }
+      },
+      "IssueResponse": {
+        "type": "object",
+        "required": ["issue"],
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/Issue"
+          }
+        }
+      },
+      "Stats": {
+        "type": "object",
+        "required": ["total", "open", "resolved", "overdue", "byStatus", "byCategory", "byPriority"],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "open": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "resolved": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overdue": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byStatus": {
+            "$ref": "#/components/schemas/CountMap"
+          },
+          "byCategory": {
+            "$ref": "#/components/schemas/CountMap"
+          },
+          "byPriority": {
+            "$ref": "#/components/schemas/CountMap"
+          }
+        }
+      },
+      "StatsResponse": {
+        "type": "object",
+        "required": ["stats"],
+        "properties": {
+          "stats": {
+            "$ref": "#/components/schemas/Stats"
+          }
+        }
+      },
+      "CountMap": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "MetaResponse": {
+        "type": "object",
+        "required": ["categories", "priorities", "statuses"],
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueCategory"
+            }
+          },
+          "priorities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssuePriority"
+            }
+          },
+          "statuses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueStatus"
+            }
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["ok", "name", "timestamp"],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": true
+          },
+          "name": {
+            "type": "string",
+            "example": "Campus Issue Tracker API"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OkResponse": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": true
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "details": {
+            "description": "Optional validation details, allowed enum values, or rate-limit details."
+          }
+        }
+      }
+    }
+  }
+}
